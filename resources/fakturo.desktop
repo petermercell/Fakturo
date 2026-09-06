@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Fakturo
+GenericName=Invoicing
+GenericName[sk]=Fakturácia
+GenericName[cs]=Fakturace
+Comment=Invoicing for Slovak and Czech sole traders
+Comment[sk]=Fakturácia pre slovenských a českých živnostníkov
+Comment[cs]=Fakturace pro slovenské a české živnostníky
+Exec=fakturo
+Icon=fakturo
+Terminal=false
+Categories=Office;Finance;
+Keywords=invoice;faktura;UBL;Peppol;
+StartupWMClass=fakturo
