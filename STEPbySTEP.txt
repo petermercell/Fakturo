@@ -7,3 +7,27 @@ rm -rf build-brew
 cmake -B build-brew -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
 cmake --build build-brew -j
 cmake --build build-brew --target dmg
+
+LINUX:
+
+cd /home/pm/Downloads/Fakturo-main
+set -e
+export PATH=$HOME/Qt6/6.5.3/gcc_64/bin:$PATH
+export LD_LIBRARY_PATH=$HOME/Qt6/6.5.3/gcc_64/lib:$LD_LIBRARY_PATH
+export CMAKE_PREFIX_PATH=$HOME/Qt6/6.5.3/gcc_64:$CMAKE_PREFIX_PATH
+
+cmake -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux
+
+////
+
+cd /home/pm/Downloads/Fakturo-main
+
+# 1. system packages the bundle needs (one time, needs sudo)
+sudo dnf install -y fuse-libs xcb-util-cursor libxkbcommon-x11 openssl-libs
+
+# 2. make the script executable again
+chmod +x scripts/make-appimage.sh
+
+# 3. pack it
+./scripts/make-appimage.sh build-linux
