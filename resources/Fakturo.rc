@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+/*
+ * Fakturo — invoicing for Slovak and Czech sole traders
+ * Copyright (C) 2026 Peter Mercell
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// Fakturo.rc - the Windows resource script.
+//
+// An .exe carries its icon inside itself rather than beside it, and Explorer
+// picks the *numerically lowest* icon resource id as the application icon. So
+// this has to be 1, and it has to be first.
+//
+// The version block is what the file's Properties dialog reads. Windows shows
+// nothing at all when it is absent, which looks like a program somebody threw
+// together — and the fields are also what an IT department checks before
+// letting an unsigned binary run.
+
+#include <windows.h>
+
+1 ICON "Fakturo.ico"
+
+VS_VERSION_INFO VERSIONINFO
+  FILEVERSION    FAKTURO_VER_MAJOR,FAKTURO_VER_MINOR,FAKTURO_VER_PATCH,0
+  PRODUCTVERSION FAKTURO_VER_MAJOR,FAKTURO_VER_MINOR,FAKTURO_VER_PATCH,0
+  FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+  FILEFLAGS      0
+  FILEOS         VOS_NT_WINDOWS32
+  FILETYPE       VFT_APP
+  FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 040E is Hungarian… 041B is Slovak, and 04B0 is Unicode. The pair
+        // has to match the Translation value below or the Properties dialog
+        // shows an empty block.
+        BLOCK "041B04B0"
+        BEGIN
+            VALUE "CompanyName",      "studio 202 s. r. o."
+            VALUE "FileDescription",  "Fakturo — fakturacny program"
+            VALUE "FileVersion",      FAKTURO_VER_STRING
+            VALUE "InternalName",     "fakturo"
+            VALUE "LegalCopyright",   "Made by Peter Mercell and Claude 2026"
+            VALUE "OriginalFilename", "Fakturo.exe"
+            VALUE "ProductName",      "Fakturo"
+            VALUE "ProductVersion",   FAKTURO_VER_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x41B, 1200
+    END
+END

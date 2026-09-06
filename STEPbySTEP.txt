@@ -1,0 +1,9 @@
+MAC:
+
+cd /fakturo path/
+brew list --versions qt qtbase qttools 2>/dev/null   # see what you actually have
+
+rm -rf build-brew
+cmake -B build-brew -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
+cmake --build build-brew -j
+cmake --build build-brew --target dmg
