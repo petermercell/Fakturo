@@ -71,6 +71,43 @@ Mac, Gatekeeper will refuse it until the quarantine flag is removed:
 xattr -dr com.apple.quarantine /Applications/Fakturo.app
 ```
 
+## Building on Linux
+
+Built and packaged on Rocky Linux 9 against the Qt online-installer build; any
+distribution with Qt 6.4 or newer works.
+
+```bash
+sudo dnf install cmake ninja-build gcc-c++ sqlite-devel zlib-devel \
+                 xcb-util-cursor libxkbcommon-x11 fuse-libs
+
+export CMAKE_PREFIX_PATH=$HOME/Qt6/6.5.3/gcc_64:$CMAKE_PREFIX_PATH
+cmake -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux
+```
+
+### AppImage
+
+```bash
+./scripts/make-appimage.sh build-linux
+```
+
+`scripts/make-appimage.sh` installs into an `AppDir`, renders the freedesktop
+PNG icon from `resources/Fakturo.ico`, and runs `linuxdeploy` with its Qt plugin
+to bundle Qt, the xcb platform plugin, the image formats and the TLS backends,
+rewriting every `RUNPATH` to `$ORIGIN`. It takes the Qt to deploy from
+`Qt6Core_DIR` in the build's `CMakeCache.txt`, so it can only ever deploy the Qt
+the binary was actually linked against. OpenSSL is copied in by hand, because Qt
+`dlopen`s it and no dependency walker can see it. It ends with an `ldd` sweep —
+run with `LD_LIBRARY_PATH` cleared, or it would resolve the bundled libraries
+back to the developer's Qt and report a clean AppDir as broken — that names
+anything still pointing outside the AppDir. That report is the release gate.
+
+The image carries Qt, not the C library, so it needs **glibc 2.34 or newer**:
+Rocky, Alma and RHEL 9, Fedora 35+, Ubuntu 22.04+, Debian 12+. It also needs
+`libfuse.so.2` to mount itself, which several distributions no longer ship —
+`dnf install fuse-libs`, `apt install libfuse2`, or run it with
+`--appimage-extract-and-run`.
+
 ## Options
 
 | Option | Default | Meaning |
@@ -81,14 +118,16 @@ xattr -dr com.apple.quarantine /Applications/Fakturo.app
 
 ## Status
 
-macOS is the platform that is built and used. Windows and Linux are in the build
-system but not exercised. Sending over the Slovak SAPI transport is not finished;
-receiving, reading, storing and paying a supplier's e-invoice is.
+macOS and Linux are both built, packaged and used — an ad-hoc-signed `.dmg` and
+an `x86_64` AppImage, neither carrying a developer signature. Windows is in the
+build system but not exercised. Sending over the Slovak SAPI transport is not
+finished; receiving, reading, storing and paying a supplier's e-invoice is.
 
 ## Licence
 
 **GNU General Public License v3.0 or later** — see [LICENSE](LICENSE).
 Every source file carries the notice and an `SPDX-License-Identifier` line.
 
-Qt is used under the LGPL v3 (the Homebrew build), which the GPL v3 permits.
+Qt is used under the LGPL v3 — the Homebrew build on macOS, the online-installer
+build bundled in the Linux AppImage — which the GPL v3 permits.
 Everything else linked in — SQLite (public domain) and zlib — is compatible.
