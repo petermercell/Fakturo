@@ -1,0 +1,64 @@
+// rc.exe reads a .rc in the system ANSI codepage unless told otherwise, and
+// this file is UTF-8. Without this line the em dash and the accented Slovak
+// below are decoded as Windows-1250 and the Properties dialog shows mojibake
+// on a Slovak program. It has to precede the first non-ASCII byte in the
+// file, including the ones in the comments, so it goes above everything.
+#pragma code_page(65001)
+
+// Fakturo.rc.in - the Windows resource script, configured by CMake.
+//
+// This is a template, not the file rc.exe reads. CMake substitutes the @...@
+// placeholders and writes the result into the build directory. The version
+// used to arrive as /D preprocessor defines instead, and that broke the very
+// first Windows build: cl.exe unescapes \" on a command line and rc.exe does
+// not, so the resource compiler received a literal \"0.15.0\" and stopped with
+// RC2104. Substituting the text into the file removes the command line, and
+// with it the escaping rules that differ between the two compilers.
+//
+// An .exe carries its icon inside itself rather than beside it, and Explorer
+// picks the *numerically lowest* icon resource id as the application icon. So
+// this has to be 1, and it has to be first.
+//
+// The version block is what the file's Properties dialog reads. Windows shows
+// nothing at all when it is absent, which looks like a program somebody threw
+// together — and the fields are also what an IT department checks before
+// letting an unsigned binary run.
+
+#include <windows.h>
+
+// An absolute path, because the configured copy of this file lives in the
+// build directory and "Fakturo.ico" beside it would not be found. Forward
+// slashes are what CMake produces and what rc.exe accepts.
+1 ICON "@FAKTURO_ICO_PATH@"
+
+VS_VERSION_INFO VERSIONINFO
+  FILEVERSION    @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+  PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+  FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+  FILEFLAGS      0
+  FILEOS         VOS_NT_WINDOWS32
+  FILETYPE       VFT_APP
+  FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 040E is Hungarian… 041B is Slovak, and 04B0 is Unicode. The pair
+        // has to match the Translation value below or the Properties dialog
+        // shows an empty block.
+        BLOCK "041B04B0"
+        BEGIN
+            VALUE "CompanyName",      "studio 202 s. r. o."
+            VALUE "FileDescription",  "Fakturo — fakturačný program"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "InternalName",     "fakturo"
+            VALUE "LegalCopyright",   "Made by Peter Mercell and Claude 2026"
+            VALUE "OriginalFilename", "Fakturo.exe"
+            VALUE "ProductName",      "Fakturo"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x41B, 1200
+    END
+END
