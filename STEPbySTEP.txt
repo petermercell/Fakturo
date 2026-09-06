@@ -31,3 +31,15 @@ chmod +x scripts/make-appimage.sh
 
 # 3. pack it
 ./scripts/make-appimage.sh build-linux
+
+WIN:
+
+cd /d C:\Users\WORKSTATION\Downloads\Fakturo-main\Fakturo-main
+
+set PATH=C:\Qt6\6.5.3\msvc2019_64\bin;%PATH%
+
+cmake -B build-msvc -A x64 -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_PREFIX_PATH=C:\Qt6\6.5.3\msvc2019_64 -DSQLite3_LIBRARY=C:\vcpkg\installed\x64-windows\lib\sqlite3.lib
+
+cmake --build build-msvc --config Release
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make-windows.ps1
