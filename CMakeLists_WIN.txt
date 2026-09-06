@@ -1,0 +1,322 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Fakturo — invoicing for Slovak and Czech sole traders
+# Copyright (C) 2026 Peter Mercell
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+cmake_minimum_required(VERSION 3.21)
+
+# Must be set before project(): CMake's Darwin platform init caches this during
+# project(), so a later set(... CACHE ...) without FORCE would be a no-op.
+#
+# Match whatever Qt was built for. Homebrew's Qt targets macOS 14, and claiming
+# an older target only produces linker warnings and a binary that would crash on
+# the OS it claims to support. Lower this only with a Qt built to match.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0")
+
+project(Fakturo VERSION 0.15.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(FAKTURO_BUILD_GUI   "Build the Qt6 desktop application" ON)
+
+# The published tree ships without tests/, so the default is "build them if
+# they are here" rather than a hard ON. A hard ON on a tree with no tests/
+# fails at configure time with a missing-source error that says nothing about
+# why, which is the worst kind of build break for someone who just cloned it.
+# Turning it on explicitly on a tree without tests/ is a mistake worth naming,
+# so that case is a fatal error with a sentence rather than a puzzle.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/tests.cpp)
+  set(FAKTURO_TESTS_DEFAULT ON)
+else()
+  set(FAKTURO_TESTS_DEFAULT OFF)
+endif()
+option(FAKTURO_BUILD_TESTS "Build the unit tests" ${FAKTURO_TESTS_DEFAULT})
+
+if(FAKTURO_BUILD_TESTS AND NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/tests.cpp)
+  message(FATAL_ERROR
+    "FAKTURO_BUILD_TESTS=ON but this tree has no tests/ directory. "
+    "Configure with -DFAKTURO_BUILD_TESTS=OFF, or build from the full source tree.")
+endif()
+# Off by default so a future compiler's new warnings cannot break the build.
+# Development happens with it ON: gcc merely warns about things clang rejects
+# outright, and that difference has broken the build here before.
+option(FAKTURO_WERROR      "Treat warnings as errors"          OFF)
+
+if(FAKTURO_BUILD_TESTS)
+  enable_testing()
+endif()
+
+# ---------------------------------------------------------------- invoice-core
+# Pure C++17 + SQLite. No Qt. Everything that must be correct lives here so it
+# can be unit tested without a GUI.
+find_package(SQLite3 REQUIRED)
+find_package(ZLIB REQUIRED)   # for reading the Finančná správa ZIP export
+
+# CMake renamed the target in 3.27; keep working on both.
+if(TARGET SQLite3::SQLite3)
+  set(FAKTURO_SQLITE SQLite3::SQLite3)
+else()
+  set(FAKTURO_SQLITE SQLite::SQLite3)
+endif()
+
+add_library(invoice_core STATIC
+  src/core/Dec.cpp
+  src/core/Lzma1.cpp
+  src/core/QrCode.cpp
+  src/core/Sha256.cpp
+  src/core/Json.cpp
+  src/core/Xml.cpp
+  src/core/XmlRecords.cpp
+  src/core/Zip.cpp
+  src/model/Model.cpp
+  src/model/Units.cpp
+  src/sk/Slovak.cpp
+  src/cz/Czech.cpp
+  src/country/Country.cpp
+  src/ubl/UblWriter.cpp
+  src/ubl/UblReader.cpp
+  src/ubl/Validator.cpp
+  src/peppol/Sapi.cpp
+  src/peppol/SapiConfig.cpp
+  src/platform/Keychain.cpp
+  src/db/Database.cpp
+  src/db/InvoiceView.cpp
+  src/registry/RegistryData.cpp
+  src/registry/VatRegister.cpp
+  src/pay/PaymentQr.cpp
+  src/bank/Statement.cpp
+  src/bank/Matcher.cpp
+  src/bank/Camt053.cpp
+)
+target_include_directories(invoice_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(invoice_core PUBLIC ${FAKTURO_SQLITE} ZLIB::ZLIB)
+
+# The SAPI client secret goes in the Keychain, not in the database — that is
+# the whole reason a backup file is not a credential. Security.framework is an
+# Apple system library, so this stays a build with no third-party dependencies.
+if(APPLE)
+  target_link_libraries(invoice_core PUBLIC "-framework Security" "-framework CoreFoundation")
+endif()
+
+if(MSVC)
+  # Slovak string literals live in the sources; MSVC needs to be told they are UTF-8.
+  target_compile_options(invoice_core PUBLIC /utf-8)
+  target_compile_options(invoice_core PRIVATE /W4)
+else()
+  target_compile_options(invoice_core PRIVATE -Wall -Wextra)
+  if(FAKTURO_WERROR)
+    target_compile_options(invoice_core PRIVATE -Werror)
+  endif()
+endif()
+
+# ---------------------------------------------------------------------- tests
+if(FAKTURO_BUILD_TESTS)
+  add_executable(core_tests tests/tests.cpp)
+  target_link_libraries(core_tests PRIVATE invoice_core)
+  target_compile_definitions(core_tests PRIVATE
+    FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+  add_test(NAME core_tests COMMAND core_tests)
+endif()
+
+# ------------------------------------------------------------------------ GUI
+if(FAKTURO_BUILD_GUI)
+  find_package(Qt6 6.4 REQUIRED COMPONENTS Core Widgets Gui Network Concurrent)
+  qt_standard_project_setup()
+
+  # The screens live in a library so the GUI tests can link the same code the
+  # application runs, rather than a second copy compiled with other flags.
+  qt_add_library(invoice_gui STATIC
+    src/gui/ApiPage.cpp
+    src/gui/MainWindow.cpp
+    src/gui/InvoiceEditor.cpp
+    src/gui/PartyForm.cpp
+    src/gui/CompanyPage.cpp
+    src/gui/DashboardPage.cpp
+    src/gui/InboxPage.cpp
+    src/gui/ImportDialog.cpp
+    src/gui/InvoiceActions.cpp
+    src/gui/RegistersPage.cpp
+    src/pdf/PdfRenderer.cpp
+    src/registry/RegistryClient.cpp
+  )
+  target_link_libraries(invoice_gui PUBLIC
+    invoice_core Qt6::Widgets Qt6::Gui Qt6::Network Qt6::Concurrent)
+
+  # So the About box can name the build without the number being written down
+  # in two places and drifting.
+  target_compile_definitions(invoice_gui PUBLIC FAKTURO_VERSION="${PROJECT_VERSION}")
+
+  # The app icon. A black squircle with FA, set in the same ink as the invoice.
+  # resources/make_icon.py regenerates it and writes the .icns by hand, because
+  # iconutil is macOS-only and this has to be reproducible anywhere.
+  set(FAKTURO_ICON ${CMAKE_CURRENT_SOURCE_DIR}/resources/Fakturo.icns)
+  if(APPLE AND NOT EXISTS ${FAKTURO_ICON})
+    message(WARNING "No app icon at ${FAKTURO_ICON} — run resources/make_icon.py")
+  endif()
+  if(APPLE)
+    # Into the bundle's Resources, and named in Info.plist without its
+    # extension — that is the pair macOS looks for, and getting either half
+    # wrong shows the generic icon with no error anywhere.
+    set_source_files_properties(${FAKTURO_ICON} PROPERTIES
+      MACOSX_PACKAGE_LOCATION "Resources")
+    qt_add_executable(fakturo src/main.cpp ${FAKTURO_ICON})
+  else()
+    qt_add_executable(fakturo src/main.cpp)
+  endif()
+  target_link_libraries(fakturo PRIVATE invoice_gui)
+
+  # The window icon, compiled into the binary. PNG rather than the .ico because
+  # Qt decodes PNG itself, while .ico needs the qico imageformats plugin to
+  # have been deployed beside the executable — and when it has not been, QIcon
+  # returns an empty icon and says nothing. BASE keeps the resource paths at
+  # :/icon/Fakturo-16.png rather than :/icon/resources/Fakturo-16.png.
+  qt_add_resources(fakturo "appicon"
+    PREFIX "/icon"
+    BASE "resources"
+    FILES
+      resources/Fakturo-16.png
+      resources/Fakturo-32.png
+      resources/Fakturo-48.png
+      resources/Fakturo-256.png)
+
+  if(WIN32)
+    # The .exe carries its own icon and version block. Explorer takes the
+    # lowest-numbered icon resource, which is why the .rc names it 1.
+    #
+    # The version is substituted into the script rather than passed as /D
+    # defines. The defines came first and broke the first Windows build ever
+    # attempted: cl.exe unescapes \" on a command line, rc.exe passes the
+    # backslashes through, and the resource compiler stopped with RC2104 on a
+    # literal \"0.15.0\". configure_file has no command line to escape.
+    set(FAKTURO_ICO_PATH ${CMAKE_CURRENT_SOURCE_DIR}/resources/Fakturo.ico)
+    if(NOT EXISTS ${FAKTURO_ICO_PATH})
+      message(WARNING "No app icon at ${FAKTURO_ICO_PATH} — run resources/make_icon.py")
+    endif()
+    configure_file(
+      ${CMAKE_CURRENT_SOURCE_DIR}/resources/Fakturo.rc.in
+      ${CMAKE_CURRENT_BINARY_DIR}/Fakturo.rc
+      @ONLY)
+    target_sources(fakturo PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/Fakturo.rc)
+    # Explorer shows the file name, not CFBundleName, so the executable itself
+    # has to be called Fakturo — "fakturo.exe" in a Start menu looks like a
+    # stray build artefact.
+    set_target_properties(fakturo PROPERTIES OUTPUT_NAME "Fakturo")
+  endif()
+
+  if(APPLE)
+    # Belt and braces. MACOSX_PACKAGE_LOCATION above should place the icon, but
+    # it did not on the first build that had one, and the failure is silent:
+    # macOS falls back to the blank sheet with nothing written anywhere. So the
+    # file is also copied outright, and the bundle is touched afterwards
+    # because the Dock and Finder cache an icon per bundle and will happily go
+    # on showing the old one against a bundle whose mtime has not moved.
+    add_custom_command(TARGET fakturo POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              $<TARGET_BUNDLE_CONTENT_DIR:fakturo>/Resources
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              ${FAKTURO_ICON} $<TARGET_BUNDLE_CONTENT_DIR:fakturo>/Resources/Fakturo.icns
+      COMMAND ${CMAKE_COMMAND} -E touch $<TARGET_BUNDLE_DIR:fakturo>
+      VERBATIM)
+  endif()
+
+  # The GUI had no warning flags at all, while every data-correctness bug in
+  # this project so far has come from this layer. Warnings only — a warning
+  # that broke Peter's build would be worse than the bug.
+  if(MSVC)
+    target_compile_options(invoice_gui PRIVATE /utf-8 /W4)
+  else()
+    target_compile_options(invoice_gui PRIVATE -Wall -Wextra)
+  endif()
+
+  # Parser tests for the registry responses. They need Qt (QJsonDocument) but
+  # no GUI and no network: they run against the captured fixtures in tests/.
+  if(FAKTURO_BUILD_TESTS)
+    add_executable(registry_tests tests/registry_tests.cpp src/registry/RegistryClient.cpp)
+    target_link_libraries(registry_tests PRIVATE invoice_core Qt6::Core Qt6::Network)
+    target_compile_definitions(registry_tests PRIVATE
+      FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME registry_tests COMMAND registry_tests)
+
+    # The screens themselves, driven headless. Long overdue: every defect of
+    # consequence in this project has come from this layer.
+    qt_add_executable(gui_tests tests/gui_tests.cpp)
+    target_link_libraries(gui_tests PRIVATE invoice_gui)
+    target_compile_definitions(gui_tests PRIVATE
+      FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME gui_tests COMMAND gui_tests)
+    # No display on a build machine, and none needed.
+    set_tests_properties(gui_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  endif()
+
+  set_target_properties(fakturo PROPERTIES
+    WIN32_EXECUTABLE ON
+    MACOSX_BUNDLE ON
+    MACOSX_BUNDLE_BUNDLE_NAME "Fakturo"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "eu.fakturo.app"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    MACOSX_BUNDLE_ICON_FILE "Fakturo"
+  )
+
+  install(TARGETS fakturo
+    BUNDLE  DESTINATION .
+    RUNTIME DESTINATION bin)
+
+  # ------------------------------------------------------------------- dmg
+  # `cmake --build <build> --target dmg` builds the app and then packs it.
+  #
+  # The packing itself stays in scripts/make-dmg.sh rather than moving into
+  # CPack: macdeployqt, the re-sign that has to come *after* it, and the
+  # otool sweep that catches a bundle still pointing at /opt/homebrew are all
+  # steps CPack's DragNDrop generator does not do, and a disk image that opens
+  # only on the machine that built it looks exactly like one that works.
+  #
+  # The bundle path is passed rather than the build directory so this is right
+  # under every generator — Xcode puts the .app in a per-config subdirectory.
+  if(APPLE)
+    # macdeployqt must come from the same Qt this app was just linked against.
+    # A Mac can easily carry two Homebrew Qts — a `qtbase` prefix beside `qt` —
+    # and `brew --prefix qt` inside the script then deploys one Qt into a
+    # bundle built against the other. macdeployqt cannot resolve a single
+    # @rpath in that state and says so a dozen times over. Handing it the path
+    # from the Qt package CMake actually found makes the mismatch impossible.
+    set(FAKTURO_MACDEPLOYQT "")
+    if(TARGET Qt6::macdeployqt)
+      get_target_property(FAKTURO_MACDEPLOYQT Qt6::macdeployqt IMPORTED_LOCATION)
+    elseif(TARGET Qt6::qmake)
+      get_target_property(_fakturo_qmake Qt6::qmake IMPORTED_LOCATION)
+      get_filename_component(_fakturo_qt_bin "${_fakturo_qmake}" DIRECTORY)
+      set(FAKTURO_MACDEPLOYQT "${_fakturo_qt_bin}/macdeployqt")
+    endif()
+    if(NOT FAKTURO_MACDEPLOYQT OR FAKTURO_MACDEPLOYQT STREQUAL "FAKTURO_MACDEPLOYQT-NOTFOUND")
+      set(FAKTURO_MACDEPLOYQT "")   # the script falls back to brew --prefix qt
+    endif()
+    message(STATUS "Fakturo: macdeployqt -> ${FAKTURO_MACDEPLOYQT}")
+
+    add_custom_target(dmg
+      COMMAND ${CMAKE_COMMAND} -E env "MACDEPLOYQT=${FAKTURO_MACDEPLOYQT}"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/make-dmg.sh
+              $<TARGET_BUNDLE_DIR:fakturo>
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMENT "Packing Fakturo-${PROJECT_VERSION}.dmg"
+      USES_TERMINAL
+      VERBATIM)
+    # add_dependencies, not DEPENDS: in add_custom_target, DEPENDS names files,
+    # so a target name there is silently no dependency at all and `--target dmg`
+    # on a clean tree would pack a bundle that is not there yet.
+    add_dependencies(dmg fakturo)
+  endif()
+endif()
